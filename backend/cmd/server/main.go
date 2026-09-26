@@ -47,8 +47,8 @@ func main() {
 	authRepo := auth.NewRepository(db)
 	profileRepo := repository.NewDiverProfileRepository(db, auditRepo)
 	planRepo := repository.NewDivePlanRepository(db, auditRepo)
-	segmentRepo := repository.NewExposureSegmentRepository(db, auditRepo)
 	assessmentRepo := repository.NewDecompressionAssessmentRepository(db, auditRepo)
+	segmentRepo := repository.NewExposureSegmentRepository(db, auditRepo, assessmentRepo)
 
 	authService := auth.NewService(authRepo, cfg.JWTSecret, cfg.JWTTTL)
 	profileService := service.NewDiverProfileService(profileRepo, planRepo)

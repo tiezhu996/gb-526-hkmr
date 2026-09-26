@@ -13,12 +13,13 @@ import (
 )
 
 type ExposureSegmentRepository struct {
-	db    *gorm.DB
-	audit *audit.Repository
+	db          *gorm.DB
+	audit       *audit.Repository
+	assessments *DecompressionAssessmentRepository
 }
 
-func NewExposureSegmentRepository(db *gorm.DB, auditRepo *audit.Repository) *ExposureSegmentRepository {
-	return &ExposureSegmentRepository{db: db, audit: auditRepo}
+func NewExposureSegmentRepository(db *gorm.DB, auditRepo *audit.Repository, assessments *DecompressionAssessmentRepository) *ExposureSegmentRepository {
+	return &ExposureSegmentRepository{db: db, audit: auditRepo, assessments: assessments}
 }
 
 func (r *ExposureSegmentRepository) ListByPlan(ctx context.Context, planID uint) ([]model.ExposureSegment, error) {
@@ -51,13 +52,18 @@ func requireDraftPlan(tx *gorm.DB, planID, version uint) (model.DivePlan, error)
 	return plan, nil
 }
 
-func bumpPlanVersion(tx *gorm.DB, plan model.DivePlan) error {
+func (r *ExposureSegmentRepository) bumpPlanVersion(ctx context.Context, tx *gorm.DB, plan model.DivePlan, entry audit.Entry) error {
 	result := tx.Model(&model.DivePlan{}).Where("id = ? AND version = ? AND plan_status = ?", plan.ID, plan.Version, constants.PlanDraft).Update("version", gorm.Expr("version + 1"))
 	if result.Error != nil {
 		return fmt.Errorf("increment plan input version: %w", result.Error)
 	}
 	if result.RowsAffected != 1 {
 		return util.Conflict("PLAN_VERSION_CONFLICT", "dive plan input version changed concurrently", nil)
+	}
+	// The input version just advanced: every still-actionable result of this
+	// plan must be expired in the same transaction.
+	if err := r.assessments.MarkStaleForInputChange(tx, ctx, plan.ID, plan.Version, plan.Version+1, entry); err != nil {
+		return err
 	}
 	return nil
 }
@@ -74,7 +80,7 @@ func (r *ExposureSegmentRepository) Create(ctx context.Context, item *model.Expo
 			}
 			return fmt.Errorf("create exposure segment: %w", err)
 		}
-		if err := bumpPlanVersion(tx, plan); err != nil {
+		if err := r.bumpPlanVersion(ctx, tx, plan, entry); err != nil {
 			return err
 		}
 		entry.EntityID = item.ID
@@ -95,7 +101,7 @@ func (r *ExposureSegmentRepository) Update(ctx context.Context, current model.Ex
 		if err := tx.Model(&model.ExposureSegment{}).Where("id = ? AND plan_id = ?", current.ID, current.PlanID).Updates(changes).Error; err != nil {
 			return fmt.Errorf("update exposure segment: %w", err)
 		}
-		if err := bumpPlanVersion(tx, plan); err != nil {
+		if err := r.bumpPlanVersion(ctx, tx, plan, entry); err != nil {
 			return err
 		}
 		entry.EntityID = current.ID
@@ -141,7 +147,7 @@ func (r *ExposureSegmentRepository) Reorder(ctx context.Context, planID, planVer
 				return fmt.Errorf("finish segment reorder: %w", err)
 			}
 		}
-		if err := bumpPlanVersion(tx, plan); err != nil {
+		if err := r.bumpPlanVersion(ctx, tx, plan, entry); err != nil {
 			return err
 		}
 		entry.EntityID = planID

@@ -1,4 +1,4 @@
-import type { DivePlan } from './plan'
+import type { DivePlan, PlanStatus } from './plan'
 import type { ExposureSegment } from './segment'
 import type { DiverProfile } from './diver'
 import type { RiskBand, RiskFlag } from './risk'
@@ -51,6 +51,11 @@ export interface DecompressionAssessment {
   highest_risk_band: RiskBand
   comparative_score: number
   assumptions: ModelAssumptions
+  input_version: number
+  plan_input_version: number
+  plan_status: PlanStatus
+  stale: boolean
+  return_reason: string
   created_at: string
   reviewed_at?: string
   safety_disclaimer: string

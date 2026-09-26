@@ -1,10 +1,11 @@
 import { Chip } from '@mui/material'
 import type { PlanStatus } from '@/types/plan'
 
-const labels: Record<PlanStatus, string> = {
+const labels: Record<string, string> = {
   draft: 'DRAFT',
   modeled: 'MODELED',
   pending_supervisor_review: 'SUPERVISOR REVIEW',
+  returned: 'RETURNED TO PLANNER',
   approved_for_training: 'TRAINING APPROVED',
   archived: 'ARCHIVED',
 }

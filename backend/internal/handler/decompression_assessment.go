@@ -36,7 +36,21 @@ func (h *DecompressionAssessmentHandler) List(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, total, err := h.service.List(c.Request.Context(), planID, c.Query("status"), page, size)
+	var stale *bool
+	if raw := c.Query("stale"); raw != "" {
+		switch raw {
+		case "true":
+			value := true
+			stale = &value
+		case "false":
+			value := false
+			stale = &value
+		default:
+			util.Fail(c, util.BadRequest("INVALID_STALE_FILTER", "stale must be true or false", nil))
+			return
+		}
+	}
+	items, total, err := h.service.List(c.Request.Context(), planID, c.Query("status"), stale, page, size)
 	if err != nil {
 		util.Fail(c, err)
 		return
@@ -101,6 +115,40 @@ func (h *DecompressionAssessmentHandler) Approve(c *gin.Context) {
 		return
 	}
 	item, err := h.service.Approve(c.Request.Context(), id, req, auditActor(c))
+	if err != nil {
+		util.Fail(c, err)
+		return
+	}
+	util.OK(c, item)
+}
+
+func (h *DecompressionAssessmentHandler) Revise(c *gin.Context) {
+	id, ok := util.ParamID(c)
+	if !ok {
+		return
+	}
+	var req dto.TransitionPlanRequest
+	if !util.BindJSON(c, &req) {
+		return
+	}
+	item, err := h.service.Revise(c.Request.Context(), id, req, auditActor(c))
+	if err != nil {
+		util.Fail(c, err)
+		return
+	}
+	util.OK(c, item)
+}
+
+func (h *DecompressionAssessmentHandler) Return(c *gin.Context) {
+	id, ok := util.ParamID(c)
+	if !ok {
+		return
+	}
+	var req dto.TransitionPlanRequest
+	if !util.BindJSON(c, &req) {
+		return
+	}
+	item, err := h.service.Return(c.Request.Context(), id, req, auditActor(c))
 	if err != nil {
 		util.Fail(c, err)
 		return

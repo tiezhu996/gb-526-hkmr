@@ -39,6 +39,9 @@ func Open(cfg config.Config) (*gorm.DB, error) {
 		if err := backfillRiskBands(db); err != nil {
 			return nil, err
 		}
+		if err := backfillAssessmentFreshness(db); err != nil {
+			return nil, err
+		}
 		if err := seed(db, cfg); err != nil {
 			return nil, err
 		}
@@ -62,6 +65,53 @@ func backfillRiskBands(db *gorm.DB) error {
 		}
 		if err := db.Model(&model.DecompressionAssessment{}).Where("id = ?", assessment.ID).Update("highest_risk_band", band).Error; err != nil {
 			return fmt.Errorf("backfill assessment %d risk band: %w", assessment.ID, err)
+		}
+	}
+	return nil
+}
+
+// backfillAssessmentFreshness fills the input_version column for rows created
+// before freshness tracking and expires any result whose recorded inputs no
+// longer match the current plan input version.
+func backfillAssessmentFreshness(db *gorm.DB) error {
+	var assessments []model.DecompressionAssessment
+	if err := db.Find(&assessments).Error; err != nil {
+		return fmt.Errorf("load assessments for freshness backfill: %w", err)
+	}
+	var plans []model.DivePlan
+	if err := db.Find(&plans).Error; err != nil {
+		return fmt.Errorf("load plans for freshness backfill: %w", err)
+	}
+	planVersion := make(map[uint]uint, len(plans))
+	for _, plan := range plans {
+		planVersion[plan.ID] = plan.Version
+	}
+	for _, assessment := range assessments {
+		changes := map[string]any{}
+		if assessment.InputVersion == 0 {
+			var snapshot decompression.InputSnapshot
+			if err := json.Unmarshal([]byte(assessment.InputSnapshotJSON), &snapshot); err != nil {
+				return fmt.Errorf("decode assessment %d snapshot for freshness backfill: %w", assessment.ID, err)
+			}
+			if snapshot.Plan.Version > 0 {
+				changes["input_version"] = snapshot.Plan.Version
+			} else {
+				changes["input_version"] = planVersion[assessment.PlanID]
+			}
+		}
+		inputVersion, _ := changes["input_version"].(uint)
+		if inputVersion == 0 {
+			inputVersion = assessment.InputVersion
+		}
+		current, exists := planVersion[assessment.PlanID]
+		actionable := assessment.AssessmentStatus == string(constants.AssessmentModeled) || assessment.AssessmentStatus == string(constants.AssessmentPending) || assessment.AssessmentStatus == string(constants.AssessmentReturned)
+		if !assessment.Stale && exists && actionable && inputVersion < current {
+			changes["stale"] = true
+		}
+		if len(changes) > 0 {
+			if err := db.Model(&model.DecompressionAssessment{}).Where("id = ?", assessment.ID).Updates(changes).Error; err != nil {
+				return fmt.Errorf("backfill assessment %d freshness: %w", assessment.ID, err)
+			}
 		}
 	}
 	return nil
@@ -132,7 +182,7 @@ func seed(db *gorm.DB, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	assessment := model.DecompressionAssessment{PlanID: plans[1].ID, AssessmentStatus: string(constants.PlanPendingReview), AlgorithmVersion: cfg.ModelVersion, InputSnapshotJSON: snapshot, CompartmentLoadsJSON: curves, RiskFlagsJSON: flags, HighestRiskBand: decompression.HighestRiskBand(result.RiskFlags), ComparativeScore: result.ComparativeScore, AssumptionsJSON: assumptions}
+	assessment := model.DecompressionAssessment{PlanID: plans[1].ID, AssessmentStatus: string(constants.PlanPendingReview), AlgorithmVersion: cfg.ModelVersion, InputSnapshotJSON: snapshot, CompartmentLoadsJSON: curves, RiskFlagsJSON: flags, HighestRiskBand: decompression.HighestRiskBand(result.RiskFlags), ComparativeScore: result.ComparativeScore, AssumptionsJSON: assumptions, InputVersion: plans[1].Version}
 	if err := db.Create(&assessment).Error; err != nil {
 		return fmt.Errorf("seed assessment: %w", err)
 	}

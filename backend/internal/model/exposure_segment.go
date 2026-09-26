@@ -8,7 +8,7 @@ type ExposureSegment struct {
 	SequenceNo     int       `gorm:"not null;uniqueIndex:idx_plan_sequence" json:"sequence_no"`
 	DepthM         float64   `gorm:"not null" json:"depth_m"`
 	DurationMin    float64   `gorm:"not null" json:"duration_min"`
-	AscentRateMMin float64   `gorm:"not null;default:0" json:"ascent_rate_mmin"`
+	AscentRateMMin float64   `gorm:"column:ascent_rate_mmin;not null;default:0" json:"ascent_rate_mmin"`
 	GasMixJSON     string    `gorm:"type:text;not null" json:"gas_mix_json"`
 	SegmentType    string    `gorm:"size:24;not null;index" json:"segment_type"`
 	Notes          string    `gorm:"size:500;not null;default:''" json:"notes"`

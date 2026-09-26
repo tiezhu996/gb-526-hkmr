@@ -36,8 +36,9 @@ docker compose down -v --remove-orphans
 - `DiverProfile`：最小化训练资料、资格等级、默认气体假设和版本，不保存诊断性医疗记录。
 - `DivePlan`：工作地点表面压力、呼吸气体、计划时间、输入版本和完整状态流。
 - `ExposureSegment`：同一计划内唯一且连续的序号，严格校验深度、时长、上升速率、气体比例和段间连续性。
-- `DecompressionAssessment`：不可覆盖的输入快照、六舱负荷曲线、风险证据、比较指数、算法版本和假设。
+- `DecompressionAssessment`：不可覆盖的输入快照、六舱负荷曲线、风险证据、比较指数、算法版本、假设、对应输入版本与过期标记。
 - 五个业务页：训练档案、计划编排、暴露剖面、评估复核、审计轨迹；图表只消费真实 API 数据。
+- 输入一变即过期：计划输入（段深度/时长/气体/排序、新增段）一旦在 `draft` 下变更，同一事务内把该计划仍可用于复核的既有评估全部置为 `stale=true`；过期结果仍可查看，但提交复核、主管批准都会被 `ASSESSMENT_STALE` 拒绝，必须按当前输入重跑模型后才能继续流转。主管退回必须填写退回原因，原因同时写在评估记录和不可删除审计事件上。
 - JWT/RBAC、请求 ID、结构化访问日志、panic recovery、本地限流、统一错误码、事务、乐观锁和不可普通删除的审计事件。
 
 项目明确不包含排班预约、工单、库存、采购、订单、保险或财务功能。
@@ -68,12 +69,21 @@ docker compose down -v --remove-orphans
 - 后端：`backend/internal/constants/risk.go`、`decompression/risk.go`、`dto/decompression_assessment.go`。
 - 前端：`frontend/src/types/risk.ts`、`types/assessment.ts`、`stores/assessment.ts`、`pages/AssessmentsPage.tsx`。
 
+评估专有状态与过期字段（`AssessmentStatus`、`input_version`、`stale`、`return_reason`）：
+
+- 数据库：`decompression_assessments.assessment_status` 的 `CHECK` 约束包含 `returned`，另有 `input_version`、`stale`、`return_reason` 列。
+- 后端：`backend/internal/constants/plan.go`（`AssessmentStatus`）、`model/decompression_assessment.go`、`repository/decompression_assessment.go`（过期在 `repository/exposure_segment.go` 的输入变更事务内联动）、`service/decompression_assessment.go`、`dto/decompression_assessment.go`。
+- 前端：`frontend/src/types/assessment.ts`、`components/common/StaleBadge.tsx`、`components/common/PlanStatusBadge.tsx`、`stores/assessment.ts`、`pages/AssessmentsPage.tsx`、`pages/PlansPage.tsx`（段编辑即触发过期）。
+
 状态流转固定为：
 
 ```text
 draft -> modeled -> pending_supervisor_review -> approved_for_training -> archived
-                 \-> draft（退回）
+          |  (计划员 revise)         |  (主管 return，必须填退回原因)
+          +-------------> draft <---+
 ```
+
+评估自身状态为 `modeled | pending_supervisor_review | returned | approved_for_training | archived`（评估专有 `returned`，计划侧一律回到 `draft`）。每次评估固化 `input_version`（产生它的计划输入版本），列表/详情同时返回当前 `plan_input_version`、`plan_status`、`stale` 与 `return_reason`。计划输入变更会在同一事务把未过期的 `modeled/pending_supervisor_review/returned` 评估置为过期并逐条写审计；已批准、已归档证据不被动。过期结果不能送审也不能批准，只能按当前输入重跑。
 
 模型输入失败不创建评估，并保持或恢复 `draft`；主管批准在单一事务中使用状态和版本条件更新，同时写审计理由。
 
@@ -90,11 +100,13 @@ draft -> modeled -> pending_supervisor_review -> approved_for_training -> archiv
 | `POST` | `/api/v1/plans/:id/assessments/run` | 校验并创建不可覆盖评估 |
 | `GET` | `/api/v1/assessments`、`/assessments/:id` | 结果列表与重放数据 |
 | `GET` | `/api/v1/assessments/:id/compare?other_id=` | 比较两个不可覆盖结果 |
-| `POST` | `/api/v1/assessments/:id/submit` | 计划员提交主管复核 |
-| `POST` | `/api/v1/assessments/:id/approve` | 主管人工批准训练用途 |
+| `POST` | `/api/v1/assessments/:id/submit` | 计划员提交主管复核（过期结果拒绝） |
+| `POST` | `/api/v1/assessments/:id/revise` | 计划员把 modeled 方案拉回 draft 修改输入 |
+| `POST` | `/api/v1/assessments/:id/approve` | 主管人工批准训练用途（过期结果拒绝） |
+| `POST` | `/api/v1/assessments/:id/return` | 主管退回计划，必填退回原因 |
 | `GET` | `/api/v1/audit-events` | 主管/管理员读取不可删除审计轨迹 |
 
-统一响应包含 `data` 或 `error` 及 `request_id`。主要错误码包括 `INVALID_GAS_MIX`、`SEGMENT_SEQUENCE_CONFLICT`、`MODEL_INPUT_INVALID`、`PLAN_VERSION_CONFLICT`、`INVALID_PLAN_TRANSITION`、`AUTH_REQUIRED` 和 `FORBIDDEN`。
+评估列表支持 `plan_id`、`status`、`stale=true|false` 过滤。统一响应包含 `data` 或 `error` 及 `request_id`。主要错误码包括 `INVALID_GAS_MIX`、`SEGMENT_SEQUENCE_CONFLICT`、`MODEL_INPUT_INVALID`、`PLAN_VERSION_CONFLICT`、`INVALID_PLAN_TRANSITION`、`ASSESSMENT_STALE`、`AUTH_REQUIRED` 和 `FORBIDDEN`。
 
 ## 技术栈与目录
 

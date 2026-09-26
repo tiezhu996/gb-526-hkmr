@@ -128,6 +128,20 @@ button, input, select, textarea { font: inherit; }
 .status-pending_supervisor_review { color: #79500f !important; background: var(--amber-soft) !important; }
 .status-approved_for_training { color: #14564f !important; background: var(--green-soft) !important; }
 .status-archived { color: #626966 !important; background: #d9dddb !important; }
+.status-returned { color: #7c3d2e !important; background: var(--red-soft) !important; }
+.status-stale { color: #7c3d2e !important; background: var(--red-soft) !important; }
+.status-current { color: var(--green) !important; background: var(--green-soft) !important; }
+
+.assessment-stale-row { background: #fbf2ef !important; }
+.assessment-stale-row.selected { box-shadow: inset 3px 0 var(--red) !important; }
+.assessment-row-badges { display: flex; align-items: center; gap: 6px; }
+.freshness-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 11px 17px; background: var(--paper-alt); border-bottom: 1px solid var(--line); }
+.freshness-note { color: var(--muted); font-size: 10.5px; }
+.freshness-note strong { color: var(--ink); }
+.stale-alert, .return-alert { align-items: center; border-radius: 0; }
+.rerun-bar { display: flex; align-items: center; gap: 10px; padding: 10px 17px; color: var(--red); background: #fbf2ef; border-bottom: 1px solid var(--line); font-size: 11px; }
+.rerun-bar span { flex: 1; }
+.segment-editing { background: var(--green-soft); box-shadow: inset 3px 0 var(--green); }
 
 .plan-workbench { display: grid; grid-template-columns: 310px minmax(0,1fr); min-height: 560px; background: var(--paper); border: 1px solid var(--line); }
 .plan-index { max-height: 690px; overflow-y: auto; }
