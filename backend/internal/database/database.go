@@ -105,8 +105,8 @@ func seed(db *gorm.DB, cfg config.Config) error {
 		return err
 	}
 	plans := []model.DivePlan{
-		{PlanCode: "TRAIN-30A", DiverProfileID: profiles[0].ID, WorksitePressureBar: 1, BreathingMixJSON: air, PlanStatus: constants.PlanDraft, CreatedBy: planner.ID, Version: 1, PlannedAt: time.Now().UTC().Add(24 * time.Hour)},
-		{PlanCode: "COMPARE-42B", DiverProfileID: profiles[1].ID, WorksitePressureBar: 1, BreathingMixJSON: trimix, PlanStatus: constants.PlanPendingReview, CreatedBy: planner.ID, Version: 3, PlannedAt: time.Now().UTC().Add(48 * time.Hour)},
+		{PlanCode: "TRAIN-30A", DiverProfileID: profiles[0].ID, WorksitePressureBar: 1, BreathingMixJSON: air, PlanStatus: constants.PlanDraft, CreatedBy: planner.ID, Version: 1, InputVersion: 1, PlannedAt: time.Now().UTC().Add(24 * time.Hour)},
+		{PlanCode: "COMPARE-42B", DiverProfileID: profiles[1].ID, WorksitePressureBar: 1, BreathingMixJSON: trimix, PlanStatus: constants.PlanPendingReview, CreatedBy: planner.ID, Version: 3, InputVersion: 2, PlannedAt: time.Now().UTC().Add(48 * time.Hour)},
 	}
 	if err := db.Create(&plans).Error; err != nil {
 		return fmt.Errorf("seed dive plans: %w", err)
@@ -132,7 +132,7 @@ func seed(db *gorm.DB, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	assessment := model.DecompressionAssessment{PlanID: plans[1].ID, AssessmentStatus: string(constants.PlanPendingReview), AlgorithmVersion: cfg.ModelVersion, InputSnapshotJSON: snapshot, CompartmentLoadsJSON: curves, RiskFlagsJSON: flags, HighestRiskBand: decompression.HighestRiskBand(result.RiskFlags), ComparativeScore: result.ComparativeScore, AssumptionsJSON: assumptions}
+	assessment := model.DecompressionAssessment{PlanID: plans[1].ID, AssessmentStatus: string(constants.PlanPendingReview), AlgorithmVersion: cfg.ModelVersion, InputSnapshotJSON: snapshot, CompartmentLoadsJSON: curves, RiskFlagsJSON: flags, HighestRiskBand: decompression.HighestRiskBand(result.RiskFlags), ComparativeScore: result.ComparativeScore, AssumptionsJSON: assumptions, InputVersion: plans[1].InputVersion}
 	if err := db.Create(&assessment).Error; err != nil {
 		return fmt.Errorf("seed assessment: %w", err)
 	}

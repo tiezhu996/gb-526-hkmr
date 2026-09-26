@@ -32,6 +32,7 @@ type DivePlanResponse struct {
 	CreatedBy           uint                 `json:"created_by"`
 	ReviewedBy          *uint                `json:"reviewed_by"`
 	Version             uint                 `json:"version"`
+	InputVersion        uint                 `json:"input_version"`
 	PlannedAt           time.Time            `json:"planned_at"`
 	CreatedAt           time.Time            `json:"created_at"`
 	UpdatedAt           time.Time            `json:"updated_at"`
@@ -65,7 +66,7 @@ func NewDivePlanResponse(item model.DivePlan, profileCode string) (DivePlanRespo
 	return DivePlanResponse{
 		ID: item.ID, PlanCode: item.PlanCode, DiverProfileID: item.DiverProfileID, DiverProfileCode: profileCode,
 		WorksitePressureBar: item.WorksitePressureBar, BreathingMix: mix, PlanStatus: item.PlanStatus,
-		CreatedBy: item.CreatedBy, ReviewedBy: item.ReviewedBy, Version: item.Version,
+		CreatedBy: item.CreatedBy, ReviewedBy: item.ReviewedBy, Version: item.Version, InputVersion: item.InputVersion,
 		PlannedAt: item.PlannedAt, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 	}, nil
 }

@@ -34,9 +34,11 @@ docker compose down -v --remove-orphans
 ## 主要功能
 
 - `DiverProfile`：最小化训练资料、资格等级、默认气体假设和版本，不保存诊断性医疗记录。
-- `DivePlan`：工作地点表面压力、呼吸气体、计划时间、输入版本和完整状态流。
-- `ExposureSegment`：同一计划内唯一且连续的序号，严格校验深度、时长、上升速率、气体比例和段间连续性。
-- `DecompressionAssessment`：不可覆盖的输入快照、六舱负荷曲线、风险证据、比较指数、算法版本和假设。
+- `DivePlan`：工作地点表面压力、呼吸气体、计划时间、乐观锁版本和独立输入版本（`input_version`），完整状态流可追踪。
+- `ExposureSegment`：同一计划内唯一且连续的序号，严格校验深度、时长、上升速率、气体比例和段间连续性；任何段变更都会推进计划输入版本。
+- `DecompressionAssessment`：不可覆盖的输入快照、六舱负荷曲线、风险证据、比较指数、算法版本和假设；每次运行记录对应的计划输入版本。
+- 输入过期标记：计划输入一变（新增/修改/重排暴露段），先前评估自动标为 `is_stale` 并注明它对应的输入版本与当前输入版本；过期结果仍可翻看和比较，但不能送审、主管也不能批准（`ASSESSMENT_STALE`），须按当前输入重新运行模型。
+- 人工复核回路：计划员可将 `modeled` 计划退回 `draft` 修订输入（`/plans/:id/revise`）；主管可将待审计划退回 `draft` 且必须填写退回原因（`/assessments/:id/return`），原因写入审计并保存在评估 `review_note` 上供计划员查看。
 - 五个业务页：训练档案、计划编排、暴露剖面、评估复核、审计轨迹；图表只消费真实 API 数据。
 - JWT/RBAC、请求 ID、结构化访问日志、panic recovery、本地限流、统一错误码、事务、乐观锁和不可普通删除的审计事件。
 
@@ -72,10 +74,12 @@ docker compose down -v --remove-orphans
 
 ```text
 draft -> modeled -> pending_supervisor_review -> approved_for_training -> archived
-                 \-> draft（退回）
+          ^  \___________退回（revise/return）___________|
 ```
 
-模型输入失败不创建评估，并保持或恢复 `draft`；主管批准在单一事务中使用状态和版本条件更新，同时写审计理由。
+模型输入失败不创建评估，并保持或恢复 `draft`；主管批准在单一事务中使用状态和版本条件更新，同时写审计理由。计划员通过 `POST /plans/:id/revise` 把 `modeled` 计划退回 `draft` 修改输入；主管通过 `POST /assessments/:id/return` 把待审计划退回 `draft`，退回原因必填并记入审计与评估 `review_note`。
+
+输入版本与过期：暴露段的新增、修改、重排会在同一事务里推进 `dive_plans.input_version`；每次评估固化运行时的输入版本。列表与详情接口返回 `input_version`、`current_input_version` 和 `is_stale`，过期评估保留可重放快照，但提交和批准都会被拒绝。
 
 ## API
 
@@ -85,16 +89,18 @@ draft -> modeled -> pending_supervisor_review -> approved_for_training -> archiv
 | `GET/POST/PUT` | `/api/v1/divers`、`/divers/:id` | 档案列表、创建、更新 |
 | `GET` | `/api/v1/divers/:id/plans` | 档案关联方案 |
 | `GET/POST` | `/api/v1/plans` | 方案列表与创建 |
+| `POST` | `/api/v1/plans/:id/revise` | 计划员把 modeled 计划退回 draft 修订输入 |
 | `GET/POST/PUT` | `/api/v1/plans/:id/segments`、`/segments/:id` | 暴露段列表、创建、更新 |
 | `PUT` | `/api/v1/plans/:id/segments/order` | 事务化重排并推进输入版本 |
 | `POST` | `/api/v1/plans/:id/assessments/run` | 校验并创建不可覆盖评估 |
-| `GET` | `/api/v1/assessments`、`/assessments/:id` | 结果列表与重放数据 |
+| `GET` | `/api/v1/assessments`、`/assessments/:id` | 结果列表与重放数据（含过期标记与输入版本） |
 | `GET` | `/api/v1/assessments/:id/compare?other_id=` | 比较两个不可覆盖结果 |
-| `POST` | `/api/v1/assessments/:id/submit` | 计划员提交主管复核 |
-| `POST` | `/api/v1/assessments/:id/approve` | 主管人工批准训练用途 |
+| `POST` | `/api/v1/assessments/:id/submit` | 计划员提交主管复核（过期结果拒绝） |
+| `POST` | `/api/v1/assessments/:id/approve` | 主管人工批准训练用途（过期结果拒绝） |
+| `POST` | `/api/v1/assessments/:id/return` | 主管退回计划到 draft，退回原因必填 |
 | `GET` | `/api/v1/audit-events` | 主管/管理员读取不可删除审计轨迹 |
 
-统一响应包含 `data` 或 `error` 及 `request_id`。主要错误码包括 `INVALID_GAS_MIX`、`SEGMENT_SEQUENCE_CONFLICT`、`MODEL_INPUT_INVALID`、`PLAN_VERSION_CONFLICT`、`INVALID_PLAN_TRANSITION`、`AUTH_REQUIRED` 和 `FORBIDDEN`。
+统一响应包含 `data` 或 `error` 及 `request_id`。主要错误码包括 `INVALID_GAS_MIX`、`SEGMENT_SEQUENCE_CONFLICT`、`MODEL_INPUT_INVALID`、`PLAN_VERSION_CONFLICT`、`INVALID_PLAN_TRANSITION`、`ASSESSMENT_STALE`、`RETURN_REASON_REQUIRED`、`AUTH_REQUIRED` 和 `FORBIDDEN`。
 
 ## 技术栈与目录
 

@@ -99,6 +99,33 @@ func (s *DivePlanService) Create(ctx context.Context, req dto.CreateDivePlanRequ
 	return dto.NewDivePlanResponse(item, profile.ProfileCode)
 }
 
+// Revise lets a planner pull a modeled plan back to draft so depth, duration,
+// or gas inputs can change. Existing immutable assessments stay readable and
+// are reported stale as soon as the input version advances.
+func (s *DivePlanService) Revise(ctx context.Context, id uint, req dto.TransitionPlanRequest, actor audit.Entry) (dto.DivePlanResponse, error) {
+	if req.TargetStatus != constants.PlanDraft {
+		return dto.DivePlanResponse{}, util.Unprocessable("INVALID_PLAN_TRANSITION", "revise endpoint only accepts draft target_status", nil)
+	}
+	current, err := s.plans.Get(ctx, id)
+	if err != nil {
+		return dto.DivePlanResponse{}, err
+	}
+	if current.Version != req.Version {
+		return dto.DivePlanResponse{}, util.Conflict("PLAN_VERSION_CONFLICT", "dive plan was changed by another user", nil)
+	}
+	if current.PlanStatus != constants.PlanModeled {
+		return dto.DivePlanResponse{}, util.Unprocessable("INVALID_PLAN_TRANSITION", fmt.Sprintf("only a modeled plan can return to draft for revision, not %s", current.PlanStatus), nil)
+	}
+	actor.Action = "dive_plan.revise"
+	actor.EntityType = "dive_plan"
+	actor.BeforeSummary = string(current.PlanStatus)
+	actor.AfterSummary = fmt.Sprintf("%s input_version=%d reason=%s", constants.PlanDraft, current.InputVersion, strings.TrimSpace(req.Reason))
+	if err := s.plans.Transition(ctx, current, constants.PlanDraft, nil, actor); err != nil {
+		return dto.DivePlanResponse{}, err
+	}
+	return s.Get(ctx, id)
+}
+
 func (s *DivePlanService) Archive(ctx context.Context, id uint, req dto.TransitionPlanRequest, actor audit.Entry) (dto.DivePlanResponse, error) {
 	if req.TargetStatus != constants.PlanArchived {
 		return dto.DivePlanResponse{}, util.Unprocessable("INVALID_PLAN_TRANSITION", "archive endpoint only accepts archived target_status", nil)

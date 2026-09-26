@@ -86,6 +86,41 @@ func (r *DecompressionAssessmentRepository) CreateModeled(ctx context.Context, p
 	return nil
 }
 
+// ReturnToDraft moves a pending plan back to draft and resets the immutable
+// run to modeled, recording the supervisor's mandatory return reason. The run
+// itself is never overwritten and stays replayable.
+func (r *DecompressionAssessmentRepository) ReturnToDraft(ctx context.Context, plan model.DivePlan, assessment model.DecompressionAssessment, reason string, entry audit.Entry) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		planResult := tx.Model(&model.DivePlan{}).Where("id = ? AND version = ? AND plan_status = ?", plan.ID, plan.Version, constants.PlanPendingReview).Updates(map[string]any{"plan_status": constants.PlanDraft, "version": gorm.Expr("version + 1")})
+		if planResult.Error != nil {
+			return fmt.Errorf("return plan to draft: %w", planResult.Error)
+		}
+		if planResult.RowsAffected != 1 {
+			return util.Conflict("PLAN_VERSION_CONFLICT", "plan state or version changed concurrently", nil)
+		}
+		assessmentResult := tx.Model(&model.DecompressionAssessment{}).Where("id = ? AND assessment_status = ?", assessment.ID, assessment.AssessmentStatus).Updates(map[string]any{"assessment_status": string(constants.PlanModeled), "review_note": reason})
+		if assessmentResult.Error != nil {
+			return fmt.Errorf("return assessment to modeled: %w", assessmentResult.Error)
+		}
+		if assessmentResult.RowsAffected != 1 {
+			return util.Conflict("ASSESSMENT_STATE_CONFLICT", "assessment review state changed concurrently", nil)
+		}
+		entry.EntityID = assessment.ID
+		if err := r.audit.RecordWithDB(ctx, tx, entry); err != nil {
+			return err
+		}
+		planEntry := entry
+		planEntry.EntityType = "dive_plan"
+		planEntry.EntityID = plan.ID
+		planEntry.Action = "dive_plan.transition"
+		return r.audit.RecordWithDB(ctx, tx, planEntry)
+	})
+	if err != nil {
+		return fmt.Errorf("return assessment transaction: %w", err)
+	}
+	return nil
+}
+
 func (r *DecompressionAssessmentRepository) Transition(ctx context.Context, plan model.DivePlan, assessment model.DecompressionAssessment, target constants.PlanStatus, actorID uint, entry audit.Entry) error {
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		planChanges := map[string]any{"plan_status": target, "version": gorm.Expr("version + 1")}

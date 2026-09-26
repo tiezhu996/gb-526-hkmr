@@ -15,19 +15,23 @@ type RunAssessmentRequest struct {
 }
 
 type AssessmentResponse struct {
-	ID               uint                             `json:"id"`
-	PlanID           uint                             `json:"plan_id"`
-	AssessmentStatus string                           `json:"assessment_status"`
-	AlgorithmVersion string                           `json:"algorithm_version"`
-	InputSnapshot    decompression.InputSnapshot      `json:"input_snapshot"`
-	CompartmentLoads []decompression.CompartmentCurve `json:"compartment_loads"`
-	RiskFlags        []decompression.RiskFlag         `json:"risk_flags"`
-	HighestRiskBand  constants.RiskBand               `json:"highest_risk_band"`
-	ComparativeScore float64                          `json:"comparative_score"`
-	Assumptions      decompression.ModelAssumptions   `json:"assumptions"`
-	CreatedAt        time.Time                        `json:"created_at"`
-	ReviewedAt       *time.Time                       `json:"reviewed_at"`
-	SafetyDisclaimer string                           `json:"safety_disclaimer"`
+	ID                  uint                             `json:"id"`
+	PlanID              uint                             `json:"plan_id"`
+	AssessmentStatus    string                           `json:"assessment_status"`
+	AlgorithmVersion    string                           `json:"algorithm_version"`
+	InputSnapshot       decompression.InputSnapshot      `json:"input_snapshot"`
+	CompartmentLoads    []decompression.CompartmentCurve `json:"compartment_loads"`
+	RiskFlags           []decompression.RiskFlag         `json:"risk_flags"`
+	HighestRiskBand     constants.RiskBand               `json:"highest_risk_band"`
+	ComparativeScore    float64                          `json:"comparative_score"`
+	Assumptions         decompression.ModelAssumptions   `json:"assumptions"`
+	InputVersion        uint                             `json:"input_version"`
+	CurrentInputVersion uint                             `json:"current_input_version"`
+	IsStale             bool                             `json:"is_stale"`
+	ReviewNote          string                           `json:"review_note,omitempty"`
+	CreatedAt           time.Time                        `json:"created_at"`
+	ReviewedAt          *time.Time                       `json:"reviewed_at"`
+	SafetyDisclaimer    string                           `json:"safety_disclaimer"`
 }
 
 type AssessmentComparison struct {
@@ -41,8 +45,10 @@ type AssessmentComparison struct {
 
 const SafetyDisclaimer = "Training and decision support only. This result is not medical advice, a certified dive table, a safety clearance, or an executable decompression instruction. Human supervisor review is required."
 
-func DecodeAssessment(item model.DecompressionAssessment) (AssessmentResponse, error) {
-	response := AssessmentResponse{ID: item.ID, PlanID: item.PlanID, AssessmentStatus: item.AssessmentStatus, AlgorithmVersion: item.AlgorithmVersion, HighestRiskBand: item.HighestRiskBand, ComparativeScore: item.ComparativeScore, CreatedAt: item.CreatedAt, ReviewedAt: item.ReviewedAt, SafetyDisclaimer: SafetyDisclaimer}
+// DecodeAssessment renders the immutable run and marks it stale whenever the
+// plan's current input version no longer matches the version the run captured.
+func DecodeAssessment(item model.DecompressionAssessment, currentInputVersion uint) (AssessmentResponse, error) {
+	response := AssessmentResponse{ID: item.ID, PlanID: item.PlanID, AssessmentStatus: item.AssessmentStatus, AlgorithmVersion: item.AlgorithmVersion, HighestRiskBand: item.HighestRiskBand, ComparativeScore: item.ComparativeScore, InputVersion: item.InputVersion, CurrentInputVersion: currentInputVersion, IsStale: item.Stale(currentInputVersion), ReviewNote: item.ReviewNote, CreatedAt: item.CreatedAt, ReviewedAt: item.ReviewedAt, SafetyDisclaimer: SafetyDisclaimer}
 	parts := []struct {
 		name string
 		raw  string

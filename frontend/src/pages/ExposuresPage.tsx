@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, MenuItem, TextField } from '@mui/material'
-import { Activity, Layers3, Timer, Waves } from 'lucide-react'
+import { Alert, Chip, MenuItem, TextField } from '@mui/material'
+import { Activity, History, Layers3, Timer, Waves } from 'lucide-react'
 import { AssumptionPanel } from '@/components/common/AssumptionPanel'
 import { ExposureChart } from '@/components/common/ExposureChart'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -29,7 +29,8 @@ export function ExposuresPage() {
     <div className="page">
       <PageHeader eyebrow="DEPTH / TIME EVIDENCE" title="Exposure profile" detail="Input geometry and modeled compartment response share one traceable timeline." actions={<TextField select label="Plan" value={planId || ''} onChange={(event) => setPlanId(Number(event.target.value))} sx={{ minWidth: 230 }}>{plans.items.map((plan) => <MenuItem key={plan.id} value={plan.id}>{plan.plan_code}</MenuItem>)}</TextField>} />
       {(plans.error || segments.error || assessments.error) && <Alert severity="error">{plans.error ?? segments.error ?? assessments.error}</Alert>}
-      {selectedPlan && <div className="exposure-strip"><div><Waves size={19} /><span>PLAN<strong>{selectedPlan.plan_code}</strong></span></div><div><Timer size={19} /><span>ELAPSED<strong>{elapsed.toFixed(1)} min</strong></span></div><div><Activity size={19} /><span>MAX DEPTH<strong>{maxDepth.toFixed(1)} m</strong></span></div><div><Layers3 size={19} /><span>MODEL<strong>{latest?.algorithm_version ?? 'NOT RUN'}</strong></span></div><PlanStatusBadge status={selectedPlan.plan_status} /></div>}
+      {selectedPlan && <div className="exposure-strip"><div><Waves size={19} /><span>PLAN<strong>{selectedPlan.plan_code}</strong></span></div><div><Timer size={19} /><span>ELAPSED<strong>{elapsed.toFixed(1)} min</strong></span></div><div><Activity size={19} /><span>MAX DEPTH<strong>{maxDepth.toFixed(1)} m</strong></span></div><div><Layers3 size={19} /><span>MODEL<strong>{latest ? `${latest.algorithm_version} · input v${latest.input_version}` : 'NOT RUN'}</strong></span></div>{latest?.is_stale && <Chip size="small" className="status-badge status-stale" icon={<History size={12} />} label={`EXPIRED · INPUT NOW V${latest.current_input_version}`} />}<PlanStatusBadge status={selectedPlan.plan_status} /></div>}
+      {latest?.is_stale && <Alert severity="warning">The displayed compartment loads were modeled against input v{latest.input_version} and are expired; the plan input is now v{latest.current_input_version}. Re-run the model to refresh this trace.</Alert>}
       <section className="chart-section">
         <div className="section-heading"><div><span className="eyebrow">ACTUAL API SERIES</span><h2>Exposure and inert-load trace</h2></div><div className="chart-key"><span className="depth-key">Depth input</span><span className="load-key">Compartment loads</span></div></div>
         {segments.items.length ? <ExposureChart segments={segments.items} curves={latest?.compartment_loads} height={410} /> : <div className="empty-state">This plan has no exposure segments.</div>}

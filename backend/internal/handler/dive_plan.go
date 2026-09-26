@@ -49,6 +49,23 @@ func (h *DivePlanHandler) Create(c *gin.Context) {
 	util.Created(c, item)
 }
 
+func (h *DivePlanHandler) Revise(c *gin.Context) {
+	id, ok := util.ParamID(c)
+	if !ok {
+		return
+	}
+	var req dto.TransitionPlanRequest
+	if !util.BindJSON(c, &req) {
+		return
+	}
+	item, err := h.service.Revise(c.Request.Context(), id, req, auditActor(c))
+	if err != nil {
+		util.Fail(c, err)
+		return
+	}
+	util.OK(c, item)
+}
+
 func (h *DivePlanHandler) Archive(c *gin.Context) {
 	id, ok := util.ParamID(c)
 	if !ok {

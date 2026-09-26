@@ -17,8 +17,16 @@ type DecompressionAssessment struct {
 	HighestRiskBand      constants.RiskBand `gorm:"size:20;not null;default:'informational';index;check:highest_risk_band IN ('informational','caution','elevated','invalid')" json:"highest_risk_band"`
 	ComparativeScore     float64            `gorm:"not null" json:"comparative_score"`
 	AssumptionsJSON      string             `gorm:"type:text;not null" json:"assumptions_json"`
+	InputVersion         uint               `gorm:"not null;default:1;index" json:"input_version"`
+	ReviewNote           string             `gorm:"size:500" json:"review_note"`
 	CreatedAt            time.Time          `gorm:"not null;index" json:"created_at"`
 	ReviewedAt           *time.Time         `json:"reviewed_at"`
 }
 
 func (DecompressionAssessment) TableName() string { return "decompression_assessments" }
+
+// Stale reports whether the immutable run no longer matches the plan's current
+// input version. Stale runs stay readable but must not be submitted or approved.
+func (a DecompressionAssessment) Stale(currentInputVersion uint) bool {
+	return a.InputVersion != currentInputVersion
+}

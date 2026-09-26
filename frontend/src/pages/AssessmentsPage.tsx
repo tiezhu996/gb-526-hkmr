@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, MenuItem, TextField } from '@mui/material'
-import { ArrowRight, CheckCheck, GitCompareArrows, ShieldAlert, Send } from 'lucide-react'
+import { Alert, Button, Chip, MenuItem, TextField } from '@mui/material'
+import { ArrowRight, CheckCheck, GitCompareArrows, History, ShieldAlert, Send, Undo2 } from 'lucide-react'
 import { AssumptionPanel } from '@/components/common/AssumptionPanel'
 import { PageHeader } from '@/components/common/PageHeader'
 import { PlanStatusBadge } from '@/components/common/PlanStatusBadge'
@@ -23,14 +23,15 @@ export function AssessmentsPage() {
   useAssessmentPolling(true)
   const selected = assessments.selected
   const selectedPlan = useMemo(() => plans.items.find((plan) => plan.id === selected?.plan_id), [plans.items, selected?.plan_id])
-  const transition = async (kind: 'submit' | 'approve') => {
+  const transition = async (kind: 'submit' | 'approve' | 'return') => {
     if (!selected) return
     setBusy(true); setLocalError(null); setNotice(null)
     try {
       const plan = await getPlan(selected.plan_id)
       if (kind === 'submit') await assessments.submit(selected.id, plan.version, reason)
-      else await assessments.approve(selected.id, plan.version, reason)
-      await plans.load(); setNotice(kind === 'submit' ? 'Assessment submitted for human supervisor review.' : 'Assessment approved for training comparison; no operational clearance was issued.')
+      else if (kind === 'approve') await assessments.approve(selected.id, plan.version, reason)
+      else await assessments.returnToDraft(selected.id, plan.version, reason)
+      await plans.load(); setNotice(kind === 'submit' ? 'Assessment submitted for human supervisor review.' : kind === 'approve' ? 'Assessment approved for training comparison; no operational clearance was issued.' : 'Plan returned to draft with the recorded return reason.')
     } catch (error) { setLocalError(error instanceof Error ? error.message : 'Review action failed') }
     finally { setBusy(false) }
   }
@@ -42,13 +43,16 @@ export function AssessmentsPage() {
       <div className="assessment-layout">
         <section className="assessment-queue">
           <div className="list-heading"><span>{assessments.items.length} RUNS</span><span>INDEX</span></div>
-          {assessments.items.map((item) => <button key={item.id} className={`assessment-row ${selected?.id === item.id ? 'selected' : ''}`} onClick={() => void assessments.select(item.id)}><div><strong>#{item.id} · {plans.items.find((plan) => plan.id === item.plan_id)?.plan_code ?? `Plan ${item.plan_id}`}</strong><span>{item.algorithm_version}</span></div><div><PlanStatusBadge status={item.assessment_status} /><b>{item.comparative_score.toFixed(1)}</b></div></button>)}
+          {assessments.items.map((item) => <button key={item.id} className={`assessment-row ${selected?.id === item.id ? 'selected' : ''}`} onClick={() => void assessments.select(item.id)}><div><strong>#{item.id} · {plans.items.find((plan) => plan.id === item.plan_id)?.plan_code ?? `Plan ${item.plan_id}`}</strong><span>{item.algorithm_version} · input v{item.input_version}</span>{item.is_stale && <Chip size="small" className="status-badge status-stale" icon={<History size={12} />} label={`STALE · INPUT V${item.input_version} → V${item.current_input_version}`} />}</div><div><PlanStatusBadge status={item.assessment_status} /><b>{item.comparative_score.toFixed(1)}</b></div></button>)}
           {!assessments.items.length && <div className="empty-state">No immutable assessments recorded.</div>}
         </section>
         <section className="assessment-detail">
           {selected ? <>
-            <div className="assessment-title"><div><span className="eyebrow">ASSESSMENT #{selected.id}</span><h2>{selectedPlan?.plan_code ?? `Plan ${selected.plan_id}`}</h2><p>Created {new Date(selected.created_at).toLocaleString()} · input snapshot preserved</p></div><div className="score-dial"><span>COMPARATIVE INDEX</span><strong>{selected.comparative_score.toFixed(1)}</strong><small>{selected.highest_risk_band} · not a safety score</small></div></div>
-            <div className="review-bar"><PlanStatusBadge status={selected.assessment_status} /><TextField label="Review reason" value={reason} onChange={(event) => setReason(event.target.value)} fullWidth />{isPlanner && selected.assessment_status === 'modeled' && <Button variant="contained" startIcon={<Send size={17} />} disabled={busy || reason.length < 3} onClick={() => void transition('submit')}>Submit</Button>}{isSupervisor && selected.assessment_status === 'pending_supervisor_review' && <Button variant="contained" color="secondary" startIcon={<CheckCheck size={17} />} disabled={busy || reason.length < 3} onClick={() => void transition('approve')}>Approve training</Button>}</div>
+            <div className="assessment-title"><div><span className="eyebrow">ASSESSMENT #{selected.id}</span><h2>{selectedPlan?.plan_code ?? `Plan ${selected.plan_id}`}</h2><p>Created {new Date(selected.created_at).toLocaleString()} · modeled against input v{selected.input_version} · immutable snapshot preserved</p></div><div className="score-dial"><span>COMPARATIVE INDEX</span><strong>{selected.comparative_score.toFixed(1)}</strong><small>{selected.highest_risk_band} · not a safety score</small></div></div>
+            {selected.is_stale && <Alert severity="warning" icon={<History size={18} />} className="stale-banner">This run is expired: it reflects plan input v{selected.input_version}, but the current plan input is v{selected.current_input_version}. It stays readable for comparison, yet it cannot be submitted or approved — re-run the model on the current inputs to continue the review flow.</Alert>}
+            {selected.review_note && <Alert severity="info" className="stale-banner">Supervisor return reason: {selected.review_note}</Alert>}
+            <div className="review-bar"><PlanStatusBadge status={selected.assessment_status} /><TextField label="Review reason" value={reason} onChange={(event) => setReason(event.target.value)} fullWidth />{isPlanner && selected.assessment_status === 'modeled' && !selected.is_stale && <Button variant="contained" startIcon={<Send size={17} />} disabled={busy || reason.length < 3} onClick={() => void transition('submit')}>Submit</Button>}{isSupervisor && selected.assessment_status === 'pending_supervisor_review' && !selected.is_stale && <Button variant="contained" color="secondary" startIcon={<CheckCheck size={17} />} disabled={busy || reason.length < 3} onClick={() => void transition('approve')}>Approve training</Button>}{isSupervisor && selected.assessment_status === 'pending_supervisor_review' && <Button variant="outlined" color="warning" startIcon={<Undo2 size={17} />} disabled={busy || reason.length < 3} onClick={() => void transition('return')}>Return to draft</Button>}</div>
+            {selected.is_stale && (selected.assessment_status === 'modeled' || selected.assessment_status === 'pending_supervisor_review') && <p className="stale-hint">Review actions are locked for this expired run. Model the current input v{selected.current_input_version} to create a submittable assessment.</p>}
             <section className="risk-section"><div className="subheading">Risk evidence <span>{selected.risk_flags.length}</span></div><div className="risk-list">{selected.risk_flags.map((flag) => <article className={`risk-row risk-${flag.band}`} key={flag.code}><ShieldAlert size={18} /><div><strong>{flag.code.replaceAll('_', ' ')}</strong><p>{flag.message}</p><small>{flag.evidence}</small></div><span>{flag.band}</span></article>)}</div></section>
             <div className="compartment-grid">{selected.compartment_loads.map((curve) => { const last = curve.points.at(-1); return <div key={curve.name}><span>{curve.name}</span><strong>{last?.total_inert_bar.toFixed(3)} bar</strong><small>N2 t½ {curve.n2_half_time_min} · He t½ {curve.he_half_time_min}</small></div> })}</div>
             <AssumptionPanel assumptions={selected.assumptions} />

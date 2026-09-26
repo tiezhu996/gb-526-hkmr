@@ -51,8 +51,11 @@ func requireDraftPlan(tx *gorm.DB, planID, version uint) (model.DivePlan, error)
 	return plan, nil
 }
 
-func bumpPlanVersion(tx *gorm.DB, plan model.DivePlan) error {
-	result := tx.Model(&model.DivePlan{}).Where("id = ? AND version = ? AND plan_status = ?", plan.ID, plan.Version, constants.PlanDraft).Update("version", gorm.Expr("version + 1"))
+// bumpPlanInputVersion advances both the optimistic-lock version and the input
+// version. Every segment change invalidates earlier immutable assessments,
+// which are then reported as stale against the new input version.
+func bumpPlanInputVersion(tx *gorm.DB, plan model.DivePlan) error {
+	result := tx.Model(&model.DivePlan{}).Where("id = ? AND version = ? AND plan_status = ?", plan.ID, plan.Version, constants.PlanDraft).Updates(map[string]any{"version": gorm.Expr("version + 1"), "input_version": gorm.Expr("input_version + 1")})
 	if result.Error != nil {
 		return fmt.Errorf("increment plan input version: %w", result.Error)
 	}
@@ -74,7 +77,7 @@ func (r *ExposureSegmentRepository) Create(ctx context.Context, item *model.Expo
 			}
 			return fmt.Errorf("create exposure segment: %w", err)
 		}
-		if err := bumpPlanVersion(tx, plan); err != nil {
+		if err := bumpPlanInputVersion(tx, plan); err != nil {
 			return err
 		}
 		entry.EntityID = item.ID
@@ -95,7 +98,7 @@ func (r *ExposureSegmentRepository) Update(ctx context.Context, current model.Ex
 		if err := tx.Model(&model.ExposureSegment{}).Where("id = ? AND plan_id = ?", current.ID, current.PlanID).Updates(changes).Error; err != nil {
 			return fmt.Errorf("update exposure segment: %w", err)
 		}
-		if err := bumpPlanVersion(tx, plan); err != nil {
+		if err := bumpPlanInputVersion(tx, plan); err != nil {
 			return err
 		}
 		entry.EntityID = current.ID
@@ -141,7 +144,7 @@ func (r *ExposureSegmentRepository) Reorder(ctx context.Context, planID, planVer
 				return fmt.Errorf("finish segment reorder: %w", err)
 			}
 		}
-		if err := bumpPlanVersion(tx, plan); err != nil {
+		if err := bumpPlanInputVersion(tx, plan); err != nil {
 			return err
 		}
 		entry.EntityID = planID
